@@ -9,6 +9,7 @@ enum LABEL_NAMES {
   JOB_NAME = 'job_name',
   QUEUE_NAME = 'queue_name',
   QUEUE_PREFIX = 'queue_prefix',
+  STATE = 'state',
   STATUS = 'status',
 }
 
@@ -28,6 +29,14 @@ export class BullMQMetricsFactory {
   >;
   private readonly jobs_active_total: ReturnType<MetricsService['createGauge']>;
   private readonly jobs_waiting_total: ReturnType<
+    MetricsService['createGauge']
+  >;
+
+  private readonly jobs_paused_total: ReturnType<MetricsService['createGauge']>;
+  private readonly jobs_prioritized_total: ReturnType<
+    MetricsService['createGauge']
+  >;
+  private readonly jobs_waiting_children_total: ReturnType<
     MetricsService['createGauge']
   >;
 
@@ -53,7 +62,11 @@ export class BullMQMetricsFactory {
     this.jobs_active_total = metricsService.createGauge({
       name: 'jobs_active_total',
       help: 'Total active jobs',
-      labelNames: [LABEL_NAMES.QUEUE_PREFIX, LABEL_NAMES.QUEUE_NAME],
+      labelNames: [
+        LABEL_NAMES.QUEUE_PREFIX,
+        LABEL_NAMES.QUEUE_NAME,
+        // LABEL_NAMES.STATE,
+      ],
     });
     this.jobs_completed_total = metricsService.createGauge({
       name: 'jobs_completed_total',
@@ -76,58 +89,60 @@ export class BullMQMetricsFactory {
       labelNames: [LABEL_NAMES.QUEUE_PREFIX, LABEL_NAMES.QUEUE_NAME],
     });
     this.jobs_active = metricsService.createCounter({
-      name: 'jobs_active',
+      name: 'jobs_active_count',
       help: 'Number of active jobs',
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
+        LABEL_NAMES.STATE,
       ],
     });
     this.jobs_waiting = metricsService.createCounter({
-      name: 'jobs_waiting',
+      name: 'jobs_waiting_count',
       help: 'Number of waiting jobs',
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
+        LABEL_NAMES.STATE,
       ],
     });
     this.jobs_failed = metricsService.createCounter({
-      name: 'jobs_failed',
+      name: 'jobs_failed_count',
       help: 'Number of failed jobs',
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
         LABEL_NAMES.ERROR_TYPE,
       ],
     });
     this.jobs_completed = metricsService.createCounter({
-      name: 'jobs_completed',
+      name: 'jobs_completed_count',
       help: 'Number of completed jobs',
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
       ],
     });
     this.jobs_stalled = metricsService.createCounter({
-      name: 'jobs_stalled',
+      name: 'jobs_stalled_count',
       help: 'Number of stalled jobs',
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
       ],
     });
     this.jobs_delayed = metricsService.createCounter({
-      name: 'jobs_delayed',
+      name: 'jobs_delayed_count',
       help: 'Number of delayed jobs',
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
       ],
     });
     this.job_duration = metricsService.createSummary({
@@ -136,7 +151,7 @@ export class BullMQMetricsFactory {
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
         LABEL_NAMES.STATUS,
         LABEL_NAMES.ERROR_TYPE,
       ],
@@ -147,7 +162,7 @@ export class BullMQMetricsFactory {
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
         LABEL_NAMES.STATUS,
         LABEL_NAMES.ERROR_TYPE,
       ],
@@ -158,10 +173,26 @@ export class BullMQMetricsFactory {
       labelNames: [
         LABEL_NAMES.QUEUE_PREFIX,
         LABEL_NAMES.QUEUE_NAME,
-        LABEL_NAMES.JOB_NAME,
+        // LABEL_NAMES.JOB_NAME,
         LABEL_NAMES.STATUS,
         LABEL_NAMES.ERROR_TYPE,
       ],
+    });
+
+    this.jobs_prioritized_total = metricsService.createGauge({
+      name: 'jobs_prioritized_total',
+      help: 'Total prioritized jobs',
+      labelNames: [LABEL_NAMES.QUEUE_PREFIX, LABEL_NAMES.QUEUE_NAME],
+    });
+    this.jobs_paused_total = metricsService.createGauge({
+      name: 'jobs_paused_total',
+      help: 'Total paused jobs',
+      labelNames: [LABEL_NAMES.QUEUE_PREFIX, LABEL_NAMES.QUEUE_NAME],
+    });
+    this.jobs_waiting_children_total = metricsService.createGauge({
+      name: 'jobs_waiting_children_total',
+      help: 'Total waiting children jobs',
+      labelNames: [LABEL_NAMES.QUEUE_PREFIX, LABEL_NAMES.QUEUE_NAME],
     });
   }
 
@@ -203,39 +234,47 @@ export class BullMQMetricsFactory {
 
     queueEvents.on('stalled', async (event) => {
       const job = await queue.getJob(event.jobId);
-      if (!job) { return; }
+      if (!job) {
+        return;
+      }
       const jobLabels = {
-        [LABEL_NAMES.JOB_NAME]: job.name,
+        // [LABEL_NAMES.JOB_NAME]: job.name,
         ...labels,
       };
       this.jobs_stalled.inc(jobLabels, 1);
     });
     queueEvents.on('active', async (event) => {
       const job = await queue.getJob(event.jobId);
-      if (!job) { return; }
+      if (!job) {
+        return;
+      }
       const jobLabels = {
-        [LABEL_NAMES.JOB_NAME]: job.name,
+        // [LABEL_NAMES.JOB_NAME]: job.name,
         ...labels,
       };
       this.jobs_active.inc(jobLabels, 1);
     });
     queueEvents.on('waiting', async (event) => {
       const job = await queue.getJob(event.jobId);
-      if (!job) { return; }
+      if (!job) {
+        return;
+      }
       const jobLabels = {
-        [LABEL_NAMES.JOB_NAME]: job.name,
+        // [LABEL_NAMES.JOB_NAME]: job.name,
         ...labels,
       };
       this.jobs_waiting.inc(jobLabels, 1);
     });
     queueEvents.on('failed', async (event) => {
       const job = await queue.getJob(event.jobId);
-      if (!job) { return; }
+      if (!job) {
+        return;
+      }
       const errorType = job.stacktrace[job.stacktrace.length - 1]?.match(
         /^(?<errorType>[^:]+):/,
       )?.groups?.errorType;
       const jobLabels = {
-        [LABEL_NAMES.JOB_NAME]: job.name,
+        // [LABEL_NAMES.JOB_NAME]: job.name,
         [LABEL_NAMES.ERROR_TYPE]: errorType,
         ...labels,
       };
@@ -244,18 +283,22 @@ export class BullMQMetricsFactory {
     });
     queueEvents.on('delayed', async (event) => {
       const job = await queue.getJob(event.jobId);
-      if (!job) { return; }
+      if (!job) {
+        return;
+      }
       const jobLabels = {
-        [LABEL_NAMES.JOB_NAME]: job.name,
+        // [LABEL_NAMES.JOB_NAME]: job.name,
         ...labels,
       };
       this.jobs_delayed.inc(jobLabels, 1);
     });
     queueEvents.on('completed', async (event) => {
       const job = await queue.getJob(event.jobId);
-      if (!job) { return; }
+      if (!job) {
+        return;
+      }
       const jobLabels = {
-        [LABEL_NAMES.JOB_NAME]: job.name,
+        // [LABEL_NAMES.JOB_NAME]: job.name,
         ...labels,
       };
       this.jobs_completed.inc(jobLabels, 1);
@@ -264,20 +307,64 @@ export class BullMQMetricsFactory {
 
     const metricInterval = setInterval(async () => {
       try {
-        const { completed, failed, delayed, active, waiting } =
-          await queue.getJobCounts(
-            'completed',
-            'failed',
-            'delayed',
-            'active',
-            'waiting',
-          );
+        const {
+          completed,
+          failed,
+          delayed,
+          active,
+          waiting,
+          prioritized,
+          paused,
+          ['waiting-children']: waiting_children,
+        } = await queue.getJobCounts(
+          'completed',
+          'failed',
+          'delayed',
+          'active',
+          'waiting',
+          'prioritized',
+          'waiting-children',
+          'paused',
+        );
 
         this.jobs_completed_total.set(labels, completed);
         this.jobs_failed_total.set(labels, failed);
         this.jobs_delayed_total.set(labels, delayed);
         this.jobs_active_total.set(labels, active);
         this.jobs_waiting_total.set(labels, waiting);
+
+        this.jobs_prioritized_total.set(labels, prioritized);
+        this.jobs_paused_total.set(labels, paused);
+        this.jobs_waiting_children_total.set(labels, waiting_children);
+        // const counts = await queue.getJobCounts(
+        //   'completed',
+        //   'failed',
+        //   'delayed',
+        //   'active',
+        //   'waiting',
+        //   'prioritized',
+        //   'waiting-children',
+        //   'paused',
+        // );
+        // const metrics: string[] = [];
+
+        // Match the test's expected HELP text
+        // metrics.push(
+        //   '# HELP bullmq_job_gauge Number of jobs in the queue by state',
+        // );
+        // metrics.push('# TYPE bullmq_job_gauge gauge');
+
+        // for (const [state, count] of Object.entries(counts)) {
+        //   metrics.push(
+        //     `bullmq_job_count{queue="${queue.name}", state="${state}"${variables}} ${count}`,
+        //   );
+        // }
+        // this.jobs_prioritized_total.set(labels, counts.prioritized);
+        // this.jobs_paused_total.set(labels, counts.paused);
+        // this.jobs_waiting_children_total.set(
+        //   labels,
+        //   counts['waiting-children'],
+        // );
       } catch (err) {
         this.logger.error(err);
       }
